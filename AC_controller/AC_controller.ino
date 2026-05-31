@@ -16,6 +16,9 @@
 #define PIN_PWM_INPUT     D6
 #define UART_RX_PIN       D3
 #define UART_TX_PIN       D4
+#define PIN_LM35_ENABLE   D0
+#define PIN_LM35_SENSOR   A0
+
 
 /* ================= SYSTEM CONFIG ================= */
 #define EEPROM_TOTAL_SIZE     4096
@@ -42,7 +45,10 @@ uint16_t irRawLength[TOTAL_IR_KEYS] = {0};
 bool isLearningMode = false;
 bool isAcOn = false;
 int currentTemperature = 24;
-
+bool lm35TriggerProcessed = false;
+bool lm35ModeEnabled = false;
+int uartTargetTemp = 24;
+int defaultAcTemp = 24;
 /* ================= PWM ================= */
 volatile unsigned long pwmRiseTime = 0;
 volatile unsigned long pwmPeriod = 0;
@@ -249,18 +255,72 @@ bool learnIRCommand(uint8_t keyIndex,unsigned long sessionStart) {
   return false;
 }
 
+
+/* =========================================================
+   READ LM35 SENSOR
+   ========================================================= */
+float readLM35Temperature()
+{
+    int adc = analogRead(PIN_LM35_SENSOR);
+
+    float voltage = adc * (3.3 / 1023.0);
+
+    float tempC = voltage * 100.0;
+
+    return tempC;
+}
+
+/* =========================================================
+   LM35 TRIGGER PROCESS
+   ========================================================= */
+void processLM35Mode()
+{
+    bool trigger = digitalRead(PIN_LM35_ENABLE);
+
+    if (!trigger)
+    {
+        lm35TriggerProcessed = false;
+        return;
+    }
+
+    if (lm35TriggerProcessed)
+    {
+        return;
+    }
+
+    float roomTemp = readLM35Temperature();
+    Serial.printf("LM35 Temp = %.1f C\n", roomTemp);
+
+    if (!isAcOn)
+    {
+        Serial.println("LM35 Trigger -> AC ON");
+        sendIRCommand(0);
+        delay(2000);
+        isAcOn = true;
+    }
+
+    int targetTemp = uartTargetTemp;
+    if (targetTemp < 16 || targetTemp > 30)
+    {
+        targetTemp = defaultAcTemp;
+    }
+    Serial.printf("LM35 Trigger -> Set Temp %d\n", targetTemp);
+    sendACTemperature(targetTemp);
+    currentTemperature = targetTemp;
+    lm35TriggerProcessed = true;
+}
 /* =========================================================
    EXTERNAL UART PROCESS
    ========================================================= */
 void processExternalUART()
 {
+    if(isLearningMode)
+        return;
+        
     while (extUart.available())
     {
         String cmd = extUart.readStringUntil('\n');
-
         cmd.trim();
-
-        // Convert to upper case
         cmd.toUpperCase();
 
         /* ================= AC ON ================= */
@@ -291,7 +351,7 @@ void processExternalUART()
             if (temp >= 16 && temp <= 30)
             {
                 sendACTemperature(temp);
-
+                uartTargetTemp = temp;
                 currentTemperature = temp;
                 isAcOn = true;
 
@@ -417,6 +477,8 @@ void loop() {
 
     lastCheck = millis();
   }
-
+  
   processExternalUART();
+  processLM35Mode();
+  
 }

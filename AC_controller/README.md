@@ -1,248 +1,146 @@
-# Update: ESP8266 Version
+# LM35 Trigger Feature
 
-## Supported Hardware
+## Overview
 
-This firmware is designed for ESP8266 only.
+The firmware supports an LM35-based trigger mechanism that can initiate AC operation independently of the PWM brightness control logic.
 
-Supported boards:
-
-* NodeMCU ESP8266
-* Wemos D1 Mini
-* ESP8266-based custom hardware
-
-ESP32 support has been removed to simplify maintenance and reduce firmware complexity.
+This feature is intended for external systems that require a one-time AC startup based on a hardware trigger signal.
 
 ---
 
-# Pin Configuration
+## Hardware Connections
 
-| Function        | Pin |
-| --------------- | --- |
-| IR Receiver     | D5  |
-| IR Sender       | D1  |
-| Learning Button | D7  |
-| Status LED      | D2  |
-| PWM Input       | D6  |
-| UART RX         | D3  |
-| UART TX         | D4  |
+| Signal             | ESP8266 Pin |
+| ------------------ | ----------- |
+| LM35 Analog Output | A0          |
+| LM35 Trigger Input | D0          |
 
----
+### LM35 Sensor
 
-# External UART Interface
+The LM35 temperature sensor is connected to the ESP8266 analog input.
 
-The controller provides an external UART interface for communication with another microcontroller, Raspberry Pi, Linux system, PLC, HMI, or external controller.
-
-## UART Configuration
-
-| Parameter | Value  |
-| --------- | ------ |
-| Baud Rate | 115200 |
-| Data Bits | 8      |
-| Stop Bits | 1      |
-| Parity    | None   |
-
-Communication uses ASCII text commands terminated with newline ('\n').
+The firmware reads the room temperature only when the trigger input becomes active.
 
 ---
 
-# UART Command Protocol
+## Operating Principle
 
-The controller supports external control through UART commands.
+The LM35 feature is event-driven.
 
-Commands are case-insensitive.
+### Trigger LOW
 
-Examples:
+When:
 
-ON
-on
-On
+D0 = LOW
 
-All are treated as the same command.
+The firmware performs no LM35-related actions.
 
----
-
-## AC ON Command
-
-Transmit:
-
-ON
-
-Controller Action:
-
-* Sends learned AC ON IR command
-* Updates internal AC state
-
-Response:
-
-ON_ACK
+The normal PWM-based AC control remains active.
 
 ---
 
-## AC OFF Command
+### Trigger HIGH
 
-Transmit:
+When:
 
-OFF
+D0 = HIGH
 
-Controller Action:
+The firmware performs the following sequence once:
 
-* Sends learned AC OFF IR command
-* Updates internal AC state
+1. Read the LM35 temperature.
+2. Print the measured temperature to the debug console.
+3. If the AC is OFF:
 
-Response:
+   * Send the learned AC ON command.
+4. Determine the target AC temperature:
 
-OFF_ACK
-
----
-
-## Temperature Command
-
-Transmit:
-
-TEMP:16
-TEMP:20
-TEMP:24
-TEMP:30
-
-Valid Range:
-
-16°C to 30°C
-
-Controller Action:
-
-* Sends corresponding learned temperature command
-* Updates internal temperature state
-
-Responses:
-
-TEMP_16_ACK
-TEMP_20_ACK
-TEMP_24_ACK
-TEMP_30_ACK
-
-Invalid Temperature Example:
-
-TEMP:35
-
-Response:
-
-TEMP_INVALID
+   * Use the most recent UART temperature command (`TEMP:XX`).
+   * If no valid UART temperature exists, use the default temperature (24°C).
+5. Send the corresponding learned AC temperature command.
+6. Update internal AC state information.
+7. Return to normal operation.
 
 ---
 
-## Status Command
+## One-Shot Trigger Behavior
 
-Transmit:
-
-STATUS
-
-Response Example:
-
-STATUS,AC=ON,TEMP=24
-
-or
-
-STATUS,AC=OFF,TEMP=24
-
-This allows external controllers to determine current operating state.
-
----
-
-## Unknown Commands
-
-If an unsupported command is received:
-
-Response:
-
-CMD_UNKNOWN
+The LM35 trigger is processed only once per activation.
 
 Example:
 
-HELLO
+Trigger LOW
+→ No action
 
-Response:
+Trigger HIGH
+→ Execute LM35 sequence
 
-CMD_UNKNOWN
+Trigger remains HIGH
+→ No additional commands sent
+
+Trigger LOW
+→ Trigger is re-armed
+
+Trigger HIGH again
+→ Execute LM35 sequence again
+
+This prevents repeated transmission of AC ON and temperature commands.
 
 ---
 
-# Example UART Session
+## Interaction with PWM Control
 
-External Controller:
+The existing PWM brightness control logic remains unchanged.
 
-ON
+The LM35 trigger does not replace PWM control.
 
-ESP8266:
+After the trigger sequence completes:
 
-ON_ACK
+* PWM monitoring continues normally.
+* Brightness-to-temperature mapping continues normally.
+* Existing AC automation remains unchanged.
 
 ---
 
-External Controller:
+## UART Temperature Integration
+
+The LM35 trigger uses the latest temperature received through UART.
+
+Example:
 
 TEMP:26
 
-ESP8266:
+Response:
 
 TEMP_26_ACK
 
----
+The next LM35 trigger event will:
 
-External Controller:
+* Turn the AC ON (if required).
+* Set the AC temperature to 26°C.
 
-STATUS
+If no UART temperature has been configured, the firmware uses:
 
-ESP8266:
+24°C
 
-STATUS,AC=ON,TEMP=26
-
----
-
-External Controller:
-
-OFF
-
-ESP8266:
-
-OFF_ACK
+as the default target temperature.
 
 ---
 
-# Learning Mode Timeout Enhancement
+## Debug Output Example
 
-Future firmware versions will include a learning session timeout.
+LM35 Temp = 31.4 C
 
-Current Behavior:
+LM35 Trigger -> AC ON
 
-* 20-second timeout per command
+LM35 Trigger -> Set Temp 26
 
-Planned Behavior:
-
-* 2-minute overall learning session timeout
-
-If no valid IR command is learned within 2 minutes:
-
-* Exit learning mode
-* Restore normal operation
-* Resume PWM-based AC control
-
-This prevents the controller from remaining in learning mode indefinitely.
+This output is available on the primary serial debug interface.
 
 ---
 
-# External Controller Integration
+## Notes
 
-The UART protocol is suitable for integration with:
-
-* Raspberry Pi
-* Linux systems
-* Home Assistant
-* Node-RED
-* STM32
-* AVR
-* PIC
-* ESP32
-* Industrial PLCs
-* Touchscreen HMIs
-
-The protocol is intentionally simple and human-readable to ease debugging and integration.
+* LM35 temperature is currently used for monitoring and event logging.
+* The measured room temperature does not currently affect AC setpoint calculations.
+* Future firmware versions may implement dynamic temperature control based on LM35 readings.
+* The trigger mechanism is edge-based and prevents repeated IR transmissions while the trigger input remains active.
