@@ -3,55 +3,53 @@
 #include <IRsend.h>
 #include <IRutils.h>
 #include <EEPROM.h>
+#include <SoftwareSerial.h>
+
 
 /* =========================================================
    BOARD DETECTION & PIN CONFIG
    ========================================================= */
+#define PIN_IR_RECEIVER   D5
+#define PIN_IR_SENDER     D1
+#define PIN_BUTTON        D7
+#define PIN_STATUS_LED    D2
+#define PIN_PWM_INPUT     D6
+#define UART_RX_PIN       D3
+#define UART_TX_PIN       D4
+#define PIN_LM35_ENABLE   D0
+#define PIN_LM35_SENSOR   A0
 
-#if defined(ESP8266)
-
-  #define PIN_IR_RECEIVER   D5
-  #define PIN_IR_SENDER     D1
-  #define PIN_BUTTON        D7
-  #define PIN_STATUS_LED    D2
-  #define PIN_PWM_INPUT     D6
-
-#elif defined(ESP32)
-
-  #define PIN_IR_RECEIVER   14
-  #define PIN_IR_SENDER     5
-  #define PIN_BUTTON        13
-  #define PIN_STATUS_LED    2
-  #define PIN_PWM_INPUT     12
-
-#else
-  #error "Unsupported board"
-#endif
 
 /* ================= SYSTEM CONFIG ================= */
-#define EEPROM_TOTAL_SIZE     2048
-#define IR_RAW_BUFFER_SIZE    350
+#define EEPROM_TOTAL_SIZE     4096
+#define IR_RAW_BUFFER_SIZE    200   // Reduced for EEPROM fit
 #define IR_CARRIER_FREQ       38
 
 #define BUTTON_LONG_PRESS_MS  5000UL
 #define IR_LEARN_TIMEOUT_MS   20000UL
 
+#define TOTAL_IR_KEYS         17   // ON, OFF, 16→30
+#define LEARNING_SESSION_TIMEOUT_MS 120000UL   // 2 minutes
+
+SoftwareSerial extUart(UART_RX_PIN, UART_TX_PIN);
 /* ================= IR OBJECTS ================= */
 IRrecv irReceiver(PIN_IR_RECEIVER, IR_RAW_BUFFER_SIZE, 15, true);
 IRsend irSender(PIN_IR_SENDER);
 decode_results irResults;
 
 /* ================= IR STORAGE ================= */
-// 0: ON, 1: OFF, 2: TEMP+, 3: TEMP-
-uint16_t irRawData[4][IR_RAW_BUFFER_SIZE];
-uint16_t irRawLength[4] = {0};
+uint16_t irRawData[TOTAL_IR_KEYS][IR_RAW_BUFFER_SIZE];
+uint16_t irRawLength[TOTAL_IR_KEYS] = {0};
 
 /* ================= SYSTEM STATE ================= */
 bool isLearningMode = false;
 bool isAcOn = false;
 int currentTemperature = 24;
-
-/* ================= PWM MEASUREMENT ================= */
+bool lm35TriggerProcessed = false;
+bool lm35ModeEnabled = false;
+int uartTargetTemp = 24;
+int defaultAcTemp = 24;
+/* ================= PWM ================= */
 volatile unsigned long pwmRiseTime = 0;
 volatile unsigned long pwmPeriod = 0;
 volatile unsigned long pwmHighTime = 0;
@@ -59,24 +57,22 @@ volatile unsigned long pwmHighTime = 0;
 /* =========================================================
    EEPROM HELPERS
    ========================================================= */
-
 int getEEPROMBaseAddress(uint8_t keyIndex) {
-  const int addressMap[4] = {0, 800, 1200, 1600};
-  return addressMap[keyIndex];
+  return keyIndex * 240; // enough for 200-length buffer
 }
 
 void saveIRCodeToEEPROM(uint8_t keyIndex) {
   EEPROM.begin(EEPROM_TOTAL_SIZE);
 
-  int baseAddr = getEEPROMBaseAddress(keyIndex);
-  uint16_t length = irRawLength[keyIndex];
+  int base = getEEPROMBaseAddress(keyIndex);
+  uint16_t len = irRawLength[keyIndex];
 
-  EEPROM.write(baseAddr, length & 0xFF);
-  EEPROM.write(baseAddr + 1, length >> 8);
+  EEPROM.write(base, len & 0xFF);
+  EEPROM.write(base + 1, len >> 8);
 
-  for (uint16_t i = 0; i < length; i++) {
-    EEPROM.write(baseAddr + 2 + i * 2, irRawData[keyIndex][i] & 0xFF);
-    EEPROM.write(baseAddr + 3 + i * 2, irRawData[keyIndex][i] >> 8);
+  for (uint16_t i = 0; i < len; i++) {
+    EEPROM.write(base + 2 + i * 2, irRawData[keyIndex][i] & 0xFF);
+    EEPROM.write(base + 3 + i * 2, irRawData[keyIndex][i] >> 8);
   }
 
   EEPROM.commit();
@@ -86,20 +82,20 @@ void saveIRCodeToEEPROM(uint8_t keyIndex) {
 bool loadIRCodeFromEEPROM(uint8_t keyIndex) {
   EEPROM.begin(EEPROM_TOTAL_SIZE);
 
-  int baseAddr = getEEPROMBaseAddress(keyIndex);
-  uint16_t length = EEPROM.read(baseAddr) | (EEPROM.read(baseAddr + 1) << 8);
+  int base = getEEPROMBaseAddress(keyIndex);
+  uint16_t len = EEPROM.read(base) | (EEPROM.read(base + 1) << 8);
 
-  if (length == 0 || length > IR_RAW_BUFFER_SIZE) {
+  if (len == 0 || len > IR_RAW_BUFFER_SIZE) {
     EEPROM.end();
     return false;
   }
 
-  irRawLength[keyIndex] = length;
+  irRawLength[keyIndex] = len;
 
-  for (uint16_t i = 0; i < length; i++) {
+  for (uint16_t i = 0; i < len; i++) {
     irRawData[keyIndex][i] =
-      EEPROM.read(baseAddr + 2 + i * 2) |
-      (EEPROM.read(baseAddr + 3 + i * 2) << 8);
+      EEPROM.read(base + 2 + i * 2) |
+      (EEPROM.read(base + 3 + i * 2) << 8);
   }
 
   EEPROM.end();
@@ -107,37 +103,33 @@ bool loadIRCodeFromEEPROM(uint8_t keyIndex) {
 }
 
 /* =========================================================
-   PWM INTERRUPT
+   PWM ISR
    ========================================================= */
-
 void IRAM_ATTR pwmInterruptHandler() {
   static bool lastState = LOW;
-  bool currentState = digitalRead(PIN_PWM_INPUT);
-
+  bool state = digitalRead(PIN_PWM_INPUT);
   unsigned long now = micros();
 
-  if (currentState && !lastState) {
+  if (state && !lastState) {
     pwmPeriod = now - pwmRiseTime;
     pwmRiseTime = now;
   }
 
-  if (!currentState && lastState) {
+  if (!state && lastState) {
     pwmHighTime = now - pwmRiseTime;
   }
 
-  lastState = currentState;
+  lastState = state;
 }
 
 /* =========================================================
-   BRIGHTNESS CALCULATION (Original Logic)
+   BRIGHTNESS
    ========================================================= */
-
 int calculateBrightnessPercent() {
   if (pwmPeriod == 0) return -1;
 
   float duty = (pwmHighTime * 100.0) / pwmPeriod;
-
-  int brightness = 100 - duty; // Inverted PWM
+  int brightness = 100 - duty;
 
   if (brightness < 0) brightness = 0;
   if (brightness > 100) brightness = 100;
@@ -146,12 +138,13 @@ int calculateBrightnessPercent() {
 }
 
 /* =========================================================
-   ORIGINAL TEMP MAPPING (UNCHANGED)
+   TEMP MAPPING
    ========================================================= */
-
 int mapBrightnessToTemperature(int b) {
 
-  if (b >= 15 && b <= 20) return 16;
+  if (b < 15) return -1;
+
+  if (b <= 20) return 16;
   if (b <= 25) return 17;
   if (b <= 30) return 18;
   if (b <= 35) return 19;
@@ -171,24 +164,32 @@ int mapBrightnessToTemperature(int b) {
 }
 
 /* =========================================================
-   IR SEND HELPER
+   IR SEND
    ========================================================= */
-
 void sendIRCommand(uint8_t keyIndex) {
   if (irRawLength[keyIndex] > 0) {
     irSender.sendRaw(irRawData[keyIndex], irRawLength[keyIndex], IR_CARRIER_FREQ);
   }
 }
 
-/* =========================================================
-   AC CONTROL (UNCHANGED LOGIC)
-   ========================================================= */
+void sendACTemperature(int temp) {
+  if (temp < 16) temp = 16;
+  if (temp > 30) temp = 30;
 
+  uint8_t index = temp - 14; // 16→2
+
+  Serial.printf("Sending TEMP %d\n", temp);
+  sendIRCommand(index);
+}
+
+/* =========================================================
+   AC CONTROL
+   ========================================================= */
 void updateACState(int brightness) {
 
-  static int lastTargetTemp = -1;
+  static int lastTemp = -1;
 
-  if (brightness == 0) {
+  if (brightness < 15) {
     if (isAcOn) {
       Serial.println("AC OFF");
       sendIRCommand(1);
@@ -200,42 +201,34 @@ void updateACState(int brightness) {
   int targetTemp = mapBrightnessToTemperature(brightness);
 
   if (!isAcOn) {
-    Serial.println("AC ON → Set 24");
+    Serial.println("AC ON");
     sendIRCommand(0);
     delay(2000);
-    currentTemperature = 24;
     isAcOn = true;
   }
 
-  if (targetTemp == lastTargetTemp) return;
-
-  Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
-
-  while (currentTemperature < targetTemp) {
-    sendIRCommand(2);
-    currentTemperature++;
-    delay(500);
+  if (targetTemp != lastTemp) {
+    Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
+    sendACTemperature(targetTemp);
+    currentTemperature = targetTemp;
+    lastTemp = targetTemp;
   }
-
-  while (currentTemperature > targetTemp) {
-    sendIRCommand(3);
-    currentTemperature--;
-    delay(500);
-  }
-
-  lastTargetTemp = targetTemp;
 }
 
 /* =========================================================
-   IR LEARNING
+   LEARNING
    ========================================================= */
+bool learnIRCommand(uint8_t keyIndex,unsigned long sessionStart) {
 
-bool learnIRCommand(uint8_t keyIndex) {
+  Serial.printf("Learning Key-%d\n", keyIndex);
+  unsigned long start = millis();
 
-  Serial.printf("Learning Key-%d\n", keyIndex + 1);
-  unsigned long startTime = millis();
+  while (millis() - start < IR_LEARN_TIMEOUT_MS) {
 
-  while (millis() - startTime < IR_LEARN_TIMEOUT_MS) {
+    if (millis() - sessionStart >= LEARNING_SESSION_TIMEOUT_MS) {
+      Serial.println("Learning session timeout");
+      return false;
+    }
 
     digitalWrite(PIN_STATUS_LED, LOW);
     delay(120);
@@ -244,12 +237,12 @@ bool learnIRCommand(uint8_t keyIndex) {
 
     if (irReceiver.decode(&irResults)) {
 
-      uint16_t rawLength = irResults.rawlen - 1;
-      if (rawLength > IR_RAW_BUFFER_SIZE) rawLength = IR_RAW_BUFFER_SIZE;
+      uint16_t len = irResults.rawlen - 1;
+      if (len > IR_RAW_BUFFER_SIZE) len = IR_RAW_BUFFER_SIZE;
 
-      irRawLength[keyIndex] = rawLength;
+      irRawLength[keyIndex] = len;
 
-      for (uint16_t i = 1; i <= rawLength; i++) {
+      for (uint16_t i = 1; i <= len; i++) {
         irRawData[keyIndex][i - 1] = irResults.rawbuf[i] * kRawTick;
       }
 
@@ -262,32 +255,172 @@ bool learnIRCommand(uint8_t keyIndex) {
   return false;
 }
 
-void startIRLearningSequence() {
 
-  isLearningMode = true;
+/* =========================================================
+   READ LM35 SENSOR
+   ========================================================= */
+float readLM35Temperature()
+{
+    int adc = analogRead(PIN_LM35_SENSOR);
 
-  for (uint8_t i = 0; i < 4; i++) {
-    learnIRCommand(i);
-    delay(300);
-  }
+    float voltage = adc * (3.3 / 1023.0);
 
-  isLearningMode = false;
+    float tempC = voltage * 100.0;
+
+    return tempC;
+}
+
+/* =========================================================
+   LM35 TRIGGER PROCESS
+   ========================================================= */
+void processLM35Mode()
+{
+    bool trigger = digitalRead(PIN_LM35_ENABLE);
+
+    if (!trigger)
+    {
+        lm35TriggerProcessed = false;
+        return;
+    }
+
+    if (lm35TriggerProcessed)
+    {
+        return;
+    }
+
+    float roomTemp = readLM35Temperature();
+    Serial.printf("LM35 Temp = %.1f C\n", roomTemp);
+
+    if (!isAcOn)
+    {
+        Serial.println("LM35 Trigger -> AC ON");
+        sendIRCommand(0);
+        delay(2000);
+        isAcOn = true;
+    }
+
+    int targetTemp = uartTargetTemp;
+    if (targetTemp < 16 || targetTemp > 30)
+    {
+        targetTemp = defaultAcTemp;
+    }
+    Serial.printf("LM35 Trigger -> Set Temp %d\n", targetTemp);
+    sendACTemperature(targetTemp);
+    currentTemperature = targetTemp;
+    lm35TriggerProcessed = true;
+}
+/* =========================================================
+   EXTERNAL UART PROCESS
+   ========================================================= */
+void processExternalUART()
+{
+    if(isLearningMode)
+        return;
+        
+    while (extUart.available())
+    {
+        String cmd = extUart.readStringUntil('\n');
+        cmd.trim();
+        cmd.toUpperCase();
+
+        /* ================= AC ON ================= */
+        if (cmd == "ON")
+        {
+            sendIRCommand(0);
+            isAcOn = true;
+
+            extUart.println("ON_ACK");
+            Serial.println("UART: AC ON");
+        }
+
+        /* ================= AC OFF ================= */
+        else if (cmd == "OFF")
+        {
+            sendIRCommand(1);
+            isAcOn = false;
+
+            extUart.println("OFF_ACK");
+            Serial.println("UART: AC OFF");
+        }
+
+        /* ================= TEMP ================= */
+        else if (cmd.startsWith("TEMP:"))
+        {
+            int temp = cmd.substring(5).toInt();
+
+            if (temp >= 16 && temp <= 30)
+            {
+                sendACTemperature(temp);
+                uartTargetTemp = temp;
+                currentTemperature = temp;
+                isAcOn = true;
+
+                extUart.printf("TEMP_%d_ACK\r\n", temp);
+
+                Serial.printf("UART: TEMP %d\n", temp);
+            }
+            else
+            {
+                extUart.println("TEMP_INVALID");
+            }
+        }
+
+        /* ================= STATUS ================= */
+        else if (cmd == "STATUS")
+        {
+            extUart.printf(
+                "STATUS,AC=%s,TEMP=%d\r\n",
+                isAcOn ? "ON" : "OFF",
+                currentTemperature
+            );
+        }
+
+        /* ================= UNKNOWN ================= */
+        else
+        {
+            extUart.println("CMD_UNKNOWN");
+        }
+    }
+}
+
+
+void startIRLearningSequence()
+{
+    isLearningMode = true;
+    unsigned long sessionStart = millis();
+    for (uint8_t i = 0; i < TOTAL_IR_KEYS; i++) {
+
+        if (millis() - sessionStart >= LEARNING_SESSION_TIMEOUT_MS) {
+            Serial.println("Learning mode expired");
+            break;
+        }
+
+        if (i == 0)
+            Serial.println("Learn AC ON");
+        else if (i == 1)
+            Serial.println("Learn AC OFF");
+        else
+            Serial.printf("Learn TEMP %d\n", 14 + i);
+
+        if (!learnIRCommand(i, sessionStart)) {
+            break;
+        }
+
+        delay(300);
+    }
+
+    Serial.println("Learning mode exited");
+    isLearningMode = false;
 }
 
 /* =========================================================
    SETUP
    ========================================================= */
-
 void setup() {
 
   Serial.begin(115200);
-
-#if defined(ESP8266)
-  Serial.println("Running on ESP8266");
-#elif defined(ESP32)
-  Serial.println("Running on ESP32");
-#endif
-
+  extUart.begin(115200);
+  
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_STATUS_LED, OUTPUT);
   pinMode(PIN_PWM_INPUT, INPUT);
@@ -299,7 +432,7 @@ void setup() {
 
   attachInterrupt(digitalPinToInterrupt(PIN_PWM_INPUT), pwmInterruptHandler, CHANGE);
 
-  for (uint8_t i = 0; i < 4; i++) {
+  for (uint8_t i = 0; i < TOTAL_IR_KEYS; i++) {
     loadIRCodeFromEEPROM(i);
   }
 
@@ -309,33 +442,32 @@ void setup() {
 /* =========================================================
    LOOP
    ========================================================= */
-
 void loop() {
 
-  static unsigned long buttonPressStart = 0;
-  static bool longPressHandled = false;
+  static unsigned long btnStart = 0;
+  static bool longPress = false;
 
-  bool isButtonPressed = (digitalRead(PIN_BUTTON) == LOW);
+  bool pressed = (digitalRead(PIN_BUTTON) == LOW);
 
-  if (isButtonPressed && buttonPressStart == 0) {
-    buttonPressStart = millis();
-    longPressHandled = false;
+  if (pressed && btnStart == 0) {
+    btnStart = millis();
+    longPress = false;
   }
 
-  if (isButtonPressed && !longPressHandled) {
-    if (millis() - buttonPressStart >= BUTTON_LONG_PRESS_MS) {
-      longPressHandled = true;
+  if (pressed && !longPress) {
+    if (millis() - btnStart >= BUTTON_LONG_PRESS_MS) {
+      longPress = true;
       startIRLearningSequence();
     }
   }
 
-  if (!isButtonPressed) {
-    buttonPressStart = 0;
+  if (!pressed) {
+    btnStart = 0;
   }
 
-  static unsigned long lastUpdateTime = 0;
+  static unsigned long lastCheck = 0;
 
-  if (millis() - lastUpdateTime > 2000) {
+  if (millis() - lastCheck > 2000) {
 
     int brightness = calculateBrightnessPercent();
 
@@ -343,6 +475,10 @@ void loop() {
       updateACState(brightness);
     }
 
-    lastUpdateTime = millis();
+    lastCheck = millis();
   }
+  
+  processExternalUART();
+  processLM35Mode();
+  
 }
