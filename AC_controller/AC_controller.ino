@@ -5,18 +5,18 @@
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
 
-
+#define firmwareVersion "1.0.0"
 /* =========================================================
    BOARD DETECTION & PIN CONFIG
    ========================================================= */
-#define PIN_IR_RECEIVER   D5
-#define PIN_IR_SENDER     D1
-#define PIN_BUTTON        D7
-#define PIN_STATUS_LED    D2
-#define PIN_PWM_INPUT     D6
-#define UART_RX_PIN       D3
-#define UART_TX_PIN       D4
-#define PIN_LM35_ENABLE   D0
+#define PIN_IR_RECEIVER   14//D5
+#define PIN_IR_SENDER     05//D1
+#define PIN_BUTTON        13//D7
+#define PIN_STATUS_LED    04//D2
+#define PIN_PWM_INPUT     12//D6
+#define UART_RX_PIN       00//D3
+#define UART_TX_PIN       02//D4
+#define PIN_LM35_ENABLE   16//D0
 #define PIN_LM35_SENSOR   A0
 
 
@@ -25,11 +25,13 @@
 #define IR_RAW_BUFFER_SIZE    200   // Reduced for EEPROM fit
 #define IR_CARRIER_FREQ       38
 
-#define BUTTON_LONG_PRESS_MS  5000UL
+#define BUTTON_LONG_PRESS_MS  3000UL
 #define IR_LEARN_TIMEOUT_MS   20000UL
 
 #define TOTAL_IR_KEYS         17   // ON, OFF, 16→30
-#define LEARNING_SESSION_TIMEOUT_MS 120000UL   // 2 minutes
+#define LEARNING_SESSION_TIMEOUT_MS 150000UL   // 2 minutes
+#define BRIGHTNESS_CHANGE_THRESHOLD 3
+
 
 SoftwareSerial extUart(UART_RX_PIN, UART_TX_PIN);
 /* ================= IR OBJECTS ================= */
@@ -49,16 +51,36 @@ bool lm35TriggerProcessed = false;
 bool lm35ModeEnabled = false;
 int uartTargetTemp = 24;
 int defaultAcTemp = 24;
+int lastBrightness = -1;
+int lastMappedTemp = -1;
+
 /* ================= PWM ================= */
 volatile unsigned long pwmRiseTime = 0;
 volatile unsigned long pwmPeriod = 0;
 volatile unsigned long pwmHighTime = 0;
-
+bool eepromClearedThisSession = false;
 /* =========================================================
    EEPROM HELPERS
    ========================================================= */
 int getEEPROMBaseAddress(uint8_t keyIndex) {
   return keyIndex * 240; // enough for 200-length buffer
+}
+
+/* =========================================================
+   CLEAR EEPROM
+   ========================================================= */
+void clearEEPROM()
+{
+    EEPROM.begin(EEPROM_TOTAL_SIZE);
+    for (int i = 0; i < EEPROM_TOTAL_SIZE; i++)
+    {
+        EEPROM.write(i, 0xFF);
+    }
+    EEPROM.commit();
+    EEPROM.end();
+
+    memset(irRawLength, 0, sizeof(irRawLength));
+    Serial.println("EEPROM Cleared");
 }
 
 void saveIRCodeToEEPROM(uint8_t keyIndex) {
@@ -103,38 +125,76 @@ bool loadIRCodeFromEEPROM(uint8_t keyIndex) {
 }
 
 /* =========================================================
-   PWM ISR
-   ========================================================= */
-void IRAM_ATTR pwmInterruptHandler() {
-  static bool lastState = LOW;
-  bool state = digitalRead(PIN_PWM_INPUT);
-  unsigned long now = micros();
-
-  if (state && !lastState) {
-    pwmPeriod = now - pwmRiseTime;
-    pwmRiseTime = now;
-  }
-
-  if (!state && lastState) {
-    pwmHighTime = now - pwmRiseTime;
-  }
-
-  lastState = state;
-}
-
-/* =========================================================
    BRIGHTNESS
    ========================================================= */
+int getBrightness(float duty)
+{
+    const int POINTS = 18;
+    const float TOLERANCE = 0.5;
+
+    const float dutyTable[POINTS] =
+    {
+        2.73, 11.33, 21.68, 31.37,
+        39.45, 47.85, 55.47, 62.11,
+        68.16, 73.60, 78.91, 83.20,
+        86.72, 89.84, 92.95, 94.92,
+        96.48, 97.85
+    };
+
+    const int brightTable[POINTS] =
+    {
+        100, 95, 90, 85,
+        80, 75, 70, 65,
+        60, 55, 50, 45,
+        40, 35, 30, 25,
+        20, 15
+    };
+
+    /* Upper & lower limits */
+    if (duty <= (dutyTable[0] + TOLERANCE))
+        return 100;
+
+    if (duty >= (dutyTable[POINTS - 1] - TOLERANCE))
+        return 15;
+
+    /* Find nearest matching point */
+    for (int i = 0; i < POINTS; i++)
+    {
+        if (fabs(duty - dutyTable[i]) <= TOLERANCE)
+        {
+            return brightTable[i];
+        }
+    }
+
+    /* Fallback: nearest point */
+    float minDiff = 999.0;
+    int nearestIndex = 0;
+    for (int i = 0; i < POINTS; i++)
+    {
+        float diff = fabs(duty - dutyTable[i]);
+
+        if (diff < minDiff)
+        {
+            minDiff = diff;
+            nearestIndex = i;
+        }
+    }
+    return brightTable[nearestIndex];
+}
+
 int calculateBrightnessPercent() {
-  if (pwmPeriod == 0) return -1;
 
-  float duty = (pwmHighTime * 100.0) / pwmPeriod;
-  int brightness = 100 - duty;
+  unsigned long highTime = pulseIn(PIN_PWM_INPUT, HIGH);
+  unsigned long lowTime  = pulseIn(PIN_PWM_INPUT, LOW);
+  unsigned long period = highTime + lowTime;
+  if (period < 0) 
+      return 15;
 
-  if (brightness < 0) brightness = 0;
-  if (brightness > 100) brightness = 100;
-
-  return brightness;
+  float frequency = 1000000.0 / period;
+  float dutyCycle = (highTime * 100.0) / period;
+  int currentBrightness = getBrightness(dutyCycle);
+  delay(500);
+  return currentBrightness;
 }
 
 /* =========================================================
@@ -199,7 +259,7 @@ void updateACState(int brightness) {
   }
 
   int targetTemp = mapBrightnessToTemperature(brightness);
-
+  Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
   if (!isAcOn) {
     Serial.println("AC ON");
     sendIRCommand(0);
@@ -208,7 +268,7 @@ void updateACState(int brightness) {
   }
 
   if (targetTemp != lastTemp) {
-    Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
+//    Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
     sendACTemperature(targetTemp);
     currentTemperature = targetTemp;
     lastTemp = targetTemp;
@@ -220,9 +280,7 @@ void updateACState(int brightness) {
    ========================================================= */
 bool learnIRCommand(uint8_t keyIndex,unsigned long sessionStart) {
 
-  Serial.printf("Learning Key-%d\n", keyIndex);
   unsigned long start = millis();
-
   while (millis() - start < IR_LEARN_TIMEOUT_MS) {
 
     if (millis() - sessionStart >= LEARNING_SESSION_TIMEOUT_MS) {
@@ -236,6 +294,11 @@ bool learnIRCommand(uint8_t keyIndex,unsigned long sessionStart) {
     delay(120);
 
     if (irReceiver.decode(&irResults)) {
+      if (!eepromClearedThisSession)
+      {
+          clearEEPROM();
+          eepromClearedThisSession = true;
+      }
 
       uint16_t len = irResults.rawlen - 1;
       if (len > IR_RAW_BUFFER_SIZE) len = IR_RAW_BUFFER_SIZE;
@@ -248,7 +311,10 @@ bool learnIRCommand(uint8_t keyIndex,unsigned long sessionStart) {
 
       saveIRCodeToEEPROM(keyIndex);
       irReceiver.resume();
+      Serial.printf("Saved Key- %d\n", keyIndex);
+      delay(500);
       return true;
+      
     }
   }
 
@@ -284,9 +350,7 @@ void processLM35Mode()
     }
 
     if (lm35TriggerProcessed)
-    {
         return;
-    }
 
     float roomTemp = readLM35Temperature();
     Serial.printf("LM35 Temp = %.1f C\n", roomTemp);
@@ -386,7 +450,9 @@ void processExternalUART()
 
 void startIRLearningSequence()
 {
+    Serial.println("Start Learning Mode");
     isLearningMode = true;
+    eepromClearedThisSession = false;
     unsigned long sessionStart = millis();
     for (uint8_t i = 0; i < TOTAL_IR_KEYS; i++) {
 
@@ -429,13 +495,11 @@ void setup() {
 
   irReceiver.enableIRIn();
   irSender.begin();
-
-  attachInterrupt(digitalPinToInterrupt(PIN_PWM_INPUT), pwmInterruptHandler, CHANGE);
-
   for (uint8_t i = 0; i < TOTAL_IR_KEYS; i++) {
     loadIRCodeFromEEPROM(i);
   }
 
+  Serial.println("\n\n\n");
   Serial.println("System Ready");
 }
 
@@ -467,15 +531,19 @@ void loop() {
 
   static unsigned long lastCheck = 0;
 
-  if (millis() - lastCheck > 2000) {
-
-    int brightness = calculateBrightnessPercent();
-
-    if (brightness >= 0) {
-      updateACState(brightness);
-    }
-
-    lastCheck = millis();
+  if (millis() - lastCheck > 2000)
+  {
+      int brightness = calculateBrightnessPercent();
+      if (brightness >= 0)
+      {
+          if (lastBrightness < 0 ||
+              abs(brightness - lastBrightness) >= BRIGHTNESS_CHANGE_THRESHOLD)
+          {
+              updateACState(brightness);
+              lastBrightness = brightness;
+          }
+      }
+      lastCheck = millis();
   }
   
   processExternalUART();
