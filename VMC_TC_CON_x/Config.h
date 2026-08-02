@@ -21,21 +21,20 @@ char Maint_Card4[] = "R:abcd12345hjo";
 char Maint_Card5[] = "R:abcd12345hjm";
 char complete_feedback[13];
 
-#define PortExp_1 0x3A
-#define PortExp_2 0x3C
-#define PortExp_3 0x3E
-#define PortExp_4 0x3F
+#define PortExp_1 0x24
+#define PortExp_2 0x22
+#define PortExp_3 0x20
+#define PortExp_4 0x26
 
 #define BLE_SOM_Ps 'p'
 #define BLE_SOM_Pc 'P'
 #define BLE_SOM_Ms 'm'
 #define BLE_SOM_Mc 'M'
 
-#define bleServerName "Wending_Machine_V_051024"
-#define FW_version    "2.1.2" 
+#define bleServerName "Wending_Machine"
+#define FW_version    "2.1.3" 
 
 BLECharacteristic *pCharacteristic = NULL;
-
 
 bool deviceConnected = false;
 bool RFID_ProviderFlag = false;

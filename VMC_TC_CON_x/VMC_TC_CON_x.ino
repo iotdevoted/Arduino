@@ -32,8 +32,8 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 
         int len = rxValue.length();
         if (len < 3) return;  
-        Serial.print("BLE RX: ");
-        Serial.println(rxValue);
+        // Serial.print("BLE RX: ");
+        // Serial.println(rxValue);
 
 
         char SOM = rxValue[0];
@@ -65,7 +65,6 @@ class MyCallbacks : public BLECharacteristicCallbacks {
 
 void WritePort1AndPort4(uint8_t value)
 {
-    // Existing PortExp_1
     Wire.beginTransmission(PortExp_1);
     Wire.write(value);
     Wire.endTransmission();
@@ -74,7 +73,7 @@ void WritePort1AndPort4(uint8_t value)
     Wire.beginTransmission(PortExp_4);
     Wire.write(value);
     Wire.endTransmission();
-
+  
     Port4Active = true;
     Port4StartTime = millis();
 }
@@ -95,45 +94,64 @@ void Motor_Rotate(unsigned int Number_of_Motor) {
 }
 
 
-// Validating he rotation of motor by checking Pin1 (Low, High, Low)
-void Rotate_Count(){
+void Rotate_Count()
+{
+    Timer_Flag = false;
     timerRestart(timer);
     timerStart(timer);
 
-        while(digitalRead(buttonPin1) == LOW)//EXTRA 02102024
+    // Wait until pin goes HIGH or timeout
+    while (digitalRead(buttonPin1) == LOW)
+    {
+        if (Port4Active && (millis() - Port4StartTime >= PORT4_ON_TIME))
         {
-            Serial.println(digitalRead(buttonPin1)); //Extra 16-05-2024
-            Serial.println("MP1");
-            if(Timer_Flag)
-                break;
-        }
-        delay(500);
-        while(digitalRead(buttonPin1) == HIGH) //EXTRA 02102024
-        {
-            Serial.println(digitalRead(buttonPin1));  //Extra 16-05-2024
-            Serial.println("MP2");
-            if(Timer_Flag)
-                break;
-
-            Serial.println(digitalRead(buttonPin1));  //Extra 16-05-2024
-            Serial.println("Motor Stop");
+        Wire.beginTransmission(PortExp_4);
+        Wire.write(0xFF);
+        Wire.endTransmission();
+        Port4Active = false;
+        Serial.println("PortExp_4 Auto OFF");
         }
 
-    Serial.println(digitalRead(buttonPin1)); //Extra        
-    delay(100);
+        if (Timer_Flag)
+        {
+            // Serial.println("Timeout in LOW state");
+            goto EXIT_FUNCTION;
+        }
+        delay(1);      // Give CPU time to service interrupts
+    }
+
+    delay(500);
+
+    // Wait until pin goes LOW again or timeout
+    while (digitalRead(buttonPin1) == HIGH)
+    {
+        if (Timer_Flag)
+        {
+            // Serial.println("Timeout in HIGH state");
+            goto EXIT_FUNCTION;
+        }
+        delay(1);
+    }
+
+EXIT_FUNCTION:
+
+    Serial.println("Motors Stoped");
     timerStop(timer);
+    // Don't call timerEnd() unless you're never using the timer again.
+    // timerEnd(timer);
+    // timer = NULL;
 
     Timer_Flag = false;
+
+    // Stop all motors
+    WritePort1AndPort4(255);
     Wire.beginTransmission(PortExp_3);
-    Wire.write((255));          //Stop All Motors
+    Wire.write(255);
     Wire.endTransmission();
     Wire.beginTransmission(PortExp_2);
-    Wire.write((255));          //Stop All Motors
-    Wire.endTransmission();
-    WritePort1AndPort4(255);
+    Wire.write(255);
     Wire.endTransmission();
 }
-
 
 void BLE_Init(void){
     // Create the BLE Device
@@ -163,7 +181,7 @@ void BLE_Init(void){
     pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
     pAdvertising->setMinPreferred(0x12);
     BLEDevice::startAdvertising();
-    Serial.println("BLE STARTED V1.1");
+    Serial.print("BLE STARTED V1.1");
 }
 
 
@@ -198,32 +216,23 @@ void setup() {
     Wire.write(255);
     Wire.endTransmission();
     delay(500);
+    WritePort1AndPort4(255);
+    delay(500);
     Wire.beginTransmission(PortExp_2);
     Wire.write(255);
-    Wire.endTransmission();
-    delay(500);
-    WritePort1AndPort4(255);
     delay(10);
 
-    timer = timerBegin(1000);       //the timer ticks at 1000 Hz
+    // Timer frequency = 1 MHz (1 tick = 1 us)
+    timer = timerBegin(1000000);
     timerAttachInterrupt(timer, &onTimer);
-    timerAlarm(timer, 15000000ULL, true, 0);        //15 sec time
+    // 8 second one-shot timer
+    timerAlarm(timer, 8000000, false, 0);
     timerStop(timer);
 
 }
 
 void loop() {
     delay(10);
-    if (Port4Active && (millis() - Port4StartTime >= PORT4_ON_TIME))
-    {
-        Wire.beginTransmission(PortExp_4);
-        Wire.write(0xFF);
-        Wire.endTransmission();
-
-        Port4Active = false;
-
-        Serial.println("PortExp_4 Auto OFF");
-    }
 
     if (deviceConnected){
         if(Serial2.available()){
@@ -234,7 +243,7 @@ void loop() {
                 delay(2);
             }
           
-            Serial.println(card_no);
+            Serial.print(card_no);
             if( strcmp(card_no, Maint_Card1) == 0 || 
                 strcmp(card_no, Maint_Card2) == 0 || 
                 strcmp(card_no, Maint_Card3) == 0 || 
@@ -256,6 +265,7 @@ void loop() {
     }
 
     if(Motor_RotateFlag == true){
+        Serial.print("Motor No:");
         Serial.println(Motor_no);
         if( (Motor_no>90) && (Motor_no<=98) ){
             Wire.beginTransmission(PortExp_3);
@@ -268,7 +278,7 @@ void loop() {
                 case 95:Wire.write(0xEF);break;
                 case 96:Wire.write(0xDF);break;
                 case 97:Wire.write(0xBF);break;
-                //case 98:Wire.write(0x7F);break; 
+                case 98:Wire.write(0x7F);break; 
                 default:Wire.write(0XFF);break; 
             }
             Wire.endTransmission();
@@ -280,14 +290,12 @@ void loop() {
         
         }else{
             Motor_Rotate(Motor_no);
-            Serial.println(PortA_value);
-            Serial.println(PortB_value);
-            Serial.println(Rotate_count);
+            WritePort1AndPort4((255-PortA_value));
+            delay(500); // for debounce
             Wire.beginTransmission(PortExp_2);
-            Wire.write((255-PortA_value));    // PORT A
+            Wire.write((255 - PortB_value));
+            delay(500); // for debounce
             Wire.endTransmission();
-            delay(1000); // for debounce
-            WritePort1AndPort4(255 - PortB_value);
 
             for(int j = 0; j < Rotate_count; j++)
                 Rotate_Count();
