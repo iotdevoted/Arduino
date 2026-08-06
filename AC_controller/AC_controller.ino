@@ -3,8 +3,11 @@
 #include <IRsend.h>
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
+#include <SimpleDHT.h>
 
-#define firmwareVersion "0.0.2" // Demo //Learning disabled
+#define firmwareVersion "0.0.3" 
+// Demo //Learning disabled
+// UART disable and DHT using not LM35
 /* =========================================================
    BOARD DETECTION & PIN CONFIG
    ========================================================= */
@@ -16,8 +19,8 @@
 #define UART_RX_PIN       00//D3
 #define UART_TX_PIN       02//D4
 #define PIN_LM35_ENABLE   16//D0
-#define PIN_LM35_SENSOR   A0
-
+#define PIN_DHT_SENSOR    00//D3
+SimpleDHT11 dht11(PIN_DHT_SENSOR);
 /* ================= SYSTEM CONFIG ================= */
 // #define EEPROM_TOTAL_SIZE     4096
 #define IR_RAW_BUFFER_SIZE    750   // Reduced for EEPROM fit
@@ -31,7 +34,7 @@
 
 #define TOTAL_IR_KEYS         18   // ON, OFF, 16→30
 // #define LEARNING_SESSION_TIMEOUT_MS 150000UL   // 2 minutes
-#define BRIGHTNESS_CHANGE_THRESHOLD 3
+#define BRIGHTNESS_CHANGE_THRESHOLD 5
 
 SoftwareSerial extUart(UART_RX_PIN, UART_TX_PIN);
 /* ================= IR OBJECTS ================= */
@@ -792,8 +795,6 @@ void sendACTemperature(int temp) {
    ========================================================= */
 void updateACState(int brightness) {
 
-  static int lastTemp = -1;
-
   if (brightness < 15) {
     if (isAcOn) {
       Serial.println("AC OFF");
@@ -820,11 +821,10 @@ void updateACState(int brightness) {
   Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
 
 
-  if (targetTemp != lastTemp) {
+  if (targetTemp != currentTemperature) {
 //    Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
     sendACTemperature(targetTemp);
     currentTemperature = targetTemp;
-    lastTemp = targetTemp;
   }
 }
 
@@ -890,15 +890,16 @@ void updateACState(int brightness) {
 /* =========================================================
    READ LM35 SENSOR
    ========================================================= */
-float readLM35Temperature()
+int read_DHT_TEMP()
 {
-    int adc = analogRead(PIN_LM35_SENSOR);
+  byte temperature = 0;
+  byte humidity = 0;
 
-    float voltage = adc * (3.3 / 1023.0);
-
-    float tempC = voltage * 100.0;
-
-    return tempC;
+  dht11.read(&temperature, &humidity, NULL);
+    // int adc = analogRead(PIN_DHT_SENSOR);
+    // float voltage = adc * (3.3 / 1023.0);
+    // float tempC = voltage * 100.0;
+    return (int)temperature;
 }
 
 /* =========================================================
@@ -906,40 +907,23 @@ float readLM35Temperature()
    ========================================================= */
 void processLM35Mode()
 {
-    bool trigger = digitalRead(PIN_LM35_ENABLE);
-
-    if (!trigger)
-    {
-        lm35TriggerProcessed = false;
-        return;
-    }
-
-    if (lm35TriggerProcessed)
-        return;
-
-    float roomTemp = readLM35Temperature();
-    Serial.printf("LM35 Temp = %.1f C\n", roomTemp);
-
-    if (!isAcOn)
-    {
-        Serial.println("LM35 Trigger -> AC ON");
-        sendACTemperature(24);
-        // sendIRCommand(AC_ON_LOCATION);
-          delay(200);
-        isAcOn = true;
-    }
-
-    int targetTemp = uartTargetTemp;
-    if (targetTemp < 16 || targetTemp > 30)
-    {
-        return;
-        //targetTemp = defaultAcTemp;
-    }
-    Serial.printf("LM35 Trigger -> Set Temp %d\n", targetTemp);
-    sendACTemperature(targetTemp);
-    currentTemperature = targetTemp;
+  bool trigger = digitalRead(PIN_LM35_ENABLE);
+  if (!trigger)
+  {
+      lm35TriggerProcessed = false;
+      return;
+  }
+  if (lm35TriggerProcessed)
+      return;
+  int roomTemp = read_DHT_TEMP();
+  if(roomTemp > currentTemperature)
+  {
+    Serial.printf("DHT_PIN Trigger -> Change temp %d\n", currentTemperature);
+    sendACTemperature(currentTemperature);
     lm35TriggerProcessed = true;
+  }
 }
+
 /* =========================================================
    EXTERNAL UART PROCESS
    ========================================================= */
@@ -1043,7 +1027,7 @@ void processExternalUART()
 void setup() {
 
   Serial.begin(115200);
-  extUart.begin(115200);
+  // extUart.begin(115200);
 //   EEPROM.begin(EEPROM_TOTAL_SIZE);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_STATUS_LED, OUTPUT);
@@ -1107,7 +1091,7 @@ void loop() {
       lastCheck = millis();
   }
   
-  processExternalUART();
+  // processExternalUART();
   processLM35Mode();
   
 }
