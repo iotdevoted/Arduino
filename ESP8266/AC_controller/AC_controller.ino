@@ -5,9 +5,8 @@
 #include <SoftwareSerial.h>
 #include <SimpleDHT.h>
 
-#define firmwareVersion "0.0.3" 
-// Demo //Learning disabled
-// UART disable and DHT using not LM35
+
+#define firmwareVersion "1.0.0" // Demo
 /* =========================================================
    BOARD DETECTION & PIN CONFIG
    ========================================================= */
@@ -16,48 +15,33 @@
 #define PIN_BUTTON        13//D7
 #define PIN_STATUS_LED    04//D2
 #define PIN_PWM_INPUT     12//D6
-#define UART_RX_PIN       00//D3
-#define UART_TX_PIN       02//D4
 #define PIN_LM35_ENABLE   16//D0
+#define PIN_LM35_SENSOR   A0
 #define PIN_DHT_SENSOR    00//D3
 SimpleDHT11 dht11(PIN_DHT_SENSOR);
 /* ================= SYSTEM CONFIG ================= */
-// #define EEPROM_TOTAL_SIZE     4096
 #define IR_RAW_BUFFER_SIZE    750   // Reduced for EEPROM fit
 #define IR_CARRIER_FREQ       38
-#define AC_OFF_LOCATION       0
-#define AC_ON_LOCATION        1
-#define MIN_IR_FRAME_LENGTH   100
-
-// #define BUTTON_LONG_PRESS_MS  3000UL
-// #define IR_LEARN_TIMEOUT_MS   20000UL
-
-#define TOTAL_IR_KEYS         18   // ON, OFF, 16→30
-// #define LEARNING_SESSION_TIMEOUT_MS 150000UL   // 2 minutes
 #define BRIGHTNESS_CHANGE_THRESHOLD 5
 
-SoftwareSerial extUart(UART_RX_PIN, UART_TX_PIN);
-/* ================= IR OBJECTS ================= */
 IRrecv irReceiver(PIN_IR_RECEIVER, IR_RAW_BUFFER_SIZE, 15, true);
 IRsend irSender(PIN_IR_SENDER);
-decode_results irResults;
 
 /* ================= IR STORAGE ================= */
-// uint16_t irRawData[IR_RAW_BUFFER_SIZE];
-uint8_t irRawLength_H = 453;
-uint8_t irRawLength_D = 319;
-uint8_t irRawLength_D1 = 407;
+uint16_t irRawLength_H = 453;
+uint16_t irRawLength_D = 319;
+uint16_t irRawLength_D1 = 407;
 
 uint16_t rawData_H16[453] = {30112, 49836,  3466, 1634,  468, 1224,  468, 378,  468, 378,  468, 376,  468, 376,  468, 378,  466, 356,  490, 376,  468,
      352,  494, 376,  468, 378,  468, 354,  490, 1200,  492, 354,  490, 356,  490, 376,  468, 376,  468, 378,  468, 354,  492, 376,  468, 1222,  468, 1224,  468, 354,  492, 376,  470, 376,  468, 376,  468, 
-376,  468, 356,  490, 352,  492, 378,  468, 1222,  468, 356,  488, 1224,  468, 1224,  468, 1222,  468, 1224,  468, 1220,  468, 1202,  488, 378,  468, 1224,  468, 1222,  466, 378,  468, 376,  468, 352,
+  376,  468, 356,  490, 352,  492, 378,  468, 1222,  468, 356,  488, 1224,  468, 1224,  468, 1222,  468, 1224,  468, 1220,  468, 1202,  488, 378,  468, 1224,  468, 1222,  466, 378,  468, 376,  468, 352,
   492, 378,  468, 376,  468, 354,  490, 354,  490, 378,  466, 1226,  468, 1222,  468, 1224,  468, 1224,  468, 1224,  468, 1224,  468, 1222,  468, 1224,  468, 356,  488, 378,  466, 354,  492, 1222,
     468, 356,  490, 376,  468, 354,  490, 354,  492, 1222,  468, 378,  468, 356,  488, 1224,  468, 356,  490, 378,  466, 378,  468, 1224,  466, 378,  468, 378,  468, 1224,  468, 378,  468, 376,  468, 378,  
-466, 378,  468, 378,  468, 386,  468, 1212,  468, 378,  468, 376,  468, 378,  468, 378,  466, 378,  468, 376,  468, 378,  468, 376,  468, 378,  468, 378,  468, 1222,  466, 378,  468, 378,  466, 380,  
-466, 378,  466, 380,  466, 380,  466, 380,  466, 378,  466, 380,  464, 382,  464, 1226,  466, 380,  462, 384,  462, 380,  462, 384,  460, 384,  460, 388,  460, 382,  456, 388,  432, 1260,  458, 1210, 
+  466, 378,  468, 378,  468, 386,  468, 1212,  468, 378,  468, 376,  468, 378,  468, 378,  466, 378,  468, 376,  468, 378,  468, 376,  468, 378,  468, 378,  468, 1222,  466, 378,  468, 378,  466, 380,  
+  466, 378,  466, 380,  466, 380,  466, 380,  466, 378,  466, 380,  464, 382,  464, 1226,  466, 380,  462, 384,  462, 380,  462, 384,  460, 384,  460, 388,  460, 382,  456, 388,  432, 1260,  458, 1210, 
  480, 388,  432, 412,  432, 414,  430, 416,  430, 414,  430, 414,  428, 1240,  452, 1240,  450, 394,  450, 396,  450, 396,  448, 398,  446, 400,  422, 422,  472, 372,  424, 422,  424, 420,  446, 400, 
  422, 422,  446, 398,  446, 400,  422, 422,  424, 442,  400, 444,  400, 444,  400, 444,  400, 446,  400, 446,  400, 1290,  402, 444,  400, 444,  398, 448,  396, 448,  398, 448,  396, 450,  396, 448,  
-398, 446,  398, 448,  394, 450,  396, 450,  394, 450,  396, 450,  394, 452,  392, 450,  394, 454,  416, 428,  392, 452,  392, 454,  388, 456,  392, 454,  390, 458,  386, 458,  384, 460,  384, 462,  384, 462,  382, 464,  382, 460,  384, 462,  384, 462,  382, 462,  382, 462,  384, 462,  384, 484,  360, 464,  382, 486,  360, 484,  360, 486,  360, 476,  384, 470,  358, 484,  362, 484,  360, 484,  360,
+  398, 446,  398, 448,  394, 450,  396, 450,  394, 450,  396, 450,  394, 452,  392, 450,  394, 454,  416, 428,  392, 452,  392, 454,  388, 456,  392, 454,  390, 458,  386, 458,  384, 460,  384, 462,  384, 462,  382, 464,  382, 460,  384, 462,  384, 462,  382, 462,  382, 462,  384, 462,  384, 484,  360, 464,  382, 486,  360, 484,  360, 486,  360, 476,  384, 470,  358, 484,  362, 484,  360, 484,  360,
  486,  360, 484,  362, 484,  358, 486,  360, 486,  360, 1332,  360, 486,  360, 486,  360, 486,  360, 486,  360, 486,  358, 488,  360, 484,  360, 486,  360, 484,  360, 486,  360, 1332,  358, 486,  360,
  486,  358, 486,  360, 486,  360, 486,  358, 486,  360, 486,  360, 486,  360, 492,  360, 480,  358, 486,  358, 488,  358, 1332,  358, 488,  358, 486,  358, 1332,  358, 1334,  358, 486,  358, 486,  358
 , 488,  360};
@@ -395,6 +379,7 @@ uint16_t rawData_D1_30[407] = {5084, 2104,  402, 1744,  404, 670,  402, 670,  40
 , 1748,  398, 674,  400, 672,  400, 674,  400, 672,  400, 1748,  400, 674,  400, 1748,  398, 1748,  400, 674,  400, 1748,  398, 1750,  398, 1750,  398, 1750,  398, 1748,  398, 674,  398, 1746,  400, 676,  398, 674,  398, 674,  398, 676,  398, 676,  398, 676,  396, 1726,  424, 674,  396, 678,  396, 1726,  424, 674,  396, 678,  396, 678,  396, 678,  396, 678,  396, 676,  396, 676,  396, 676,  396, 678,  396, 1728,  422, 1724,  424, 654,  420, 652,  420, 1724,  422, 1726,  422, 1724,  422, 652,  422, 650,  422, 650,  422, 650,  422, 652,  422, 652,  420, 652,  422, 652,  422, 652,  420, 1726,  420, 654,  400, 672,  420, 652,  420, 652,  398, 1750,  396, 678,  396, 678,  394, 678,  394, 680,  392, 680,  392, 682,  390, 684,  388, 684,  386, 688,  384, 690,  382, 690,  384, 690,  384, 688,  384, 688,  386, 688,  384, 688,  386, 688,  386, 708,  360, 694,  380, 1788,  362, 712,  362, 1786,  362, 710,  360, 1786,  358, 716,  332, 740,  332, 740,  362, 712,  330, 744,  316, 758,  294, 1854,  292, 780,  292, 1854,  294, 780,  292, 782,  292, 780,  294, 780,  308, 764,  292, 780,  292, 780,  292, 780,  294, 780,  314, 758,  292, 780,  294, 780,  292, 780,  292, 780,  292, 1856,  292, 780,  292, 780,  292, 780,  292, 782,  292, 782,  292, 780,  292, 782,  294, 780,  292, 780,  294, 780,  292, 782,  292, 782,  292, 780,  292, 780,  292, 780,  292, 782,  292, 780,  292, 782,  292, 780,  294
 , 780,  292, 782,  292, 782,  292, 782,  292, 782,  292, 780,  296, 778,  292, 782,  292, 782,  292, 782,  292, 1856,  292, 1856,  292, 1856,  290, 1856,  292, 782,  290};
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 uint16_t rawData_D_18[319] = {486, 420,  464, 428,  452, 432,  456, 430,  462, 426,  458, 25208,  3622, 1736,  462, 1292,  454, 436,  458, 454,  434, 430,  460, 1296,  462, 454,  434, 430,  460, 432,  460, 430,  458, 1300,  466, 428,  460, 1298,  434, 1322,  460, 454,  404, 1326,  430, 1324,  464, 1292,  462, 1296,  458, 1298,  456, 430,  462, 426, 
  430, 1324,  458, 432,  452, 438,  456, 430,  454, 436,  454, 434,  456, 430,  452, 438,  456, 434,  428, 458,  456, 434,  428, 460,  460, 428,  428, 462,  430, 460,  440, 446,  456, 434,  454, 432,  430, 460,  426, 1328,  454, 458,  430, 432,  458, 432,  428, 1324,  454, 1302,  460, 428,  452, 438,  452, 434,  452, 434,  460, 1296,  456, 432,  462, 428,  458, 1294,  458, 430,  460, 428,  456, 436,  458, 430,  458, 434,  454, 432,  458, 428,  460, 430,  458, 434,  482, 404,  454, 436,  458, 432,  460, 428,  454, 434,  454, 1300,  456, 1300,  450, 1304,  456, 434,  452, 438,  456, 432,  454, 434,  454, 436,  454, 432,  458, 432,  456, 434,  458, 430,  430, 462,  454, 460,  424, 464,  428, 440,  452, 436,  456, 434,  434, 460,  428, 462,  458, 434,  454, 1302,  456, 1304,  454, 460,  432, 436,  460, 458,  432, 434,  456, 436,  460, 458,  432, 458,  432, 438,  458, 456,  432, 440,  454, 1306,  448, 1308,  452, 462,  426, 464,  432, 458,  432, 460,  432, 460,  430, 462,  430, 462,  426, 464,  426, 464,  396, 472,  452, 462,  394, 496,  396, 472,  418, 474,  416, 496,  394, 496,  394, 498,  394, 498,  392, 1362,  394, 498,  394, 496,  394, 494,  394, 496,  394, 1362,  396, 1364,  396, 496,  394, 500,  394, 496,  396, 494,  418, 474,  396, 496,  396, 496,  394, 1364,  394, 496,  394, 496,  394, 496,  394, 496,  394, 496,  394, 496,  394, 496,  394, 496,  392, 1364,  394, 1364,  392, 
 1366,  392, 1364,  392, 1362,  392, 1364,  392, 1362,  392, 494,  392};
@@ -511,105 +496,31 @@ uint16_t rawData_D_30[319] = {506, 402,  454, 452,  428, 452,  408, 474,  426, 4
 
 
 /* ================= SYSTEM STATE ================= */
-bool isLearningMode = false;
-bool isAcOn = false;
-int currentTemperature = 24;
-bool lm35TriggerProcessed = false;
-bool lm35ModeEnabled = false;
-int uartTargetTemp = 24;
-int defaultAcTemp = 24;
-int lastBrightness = -1;
-int lastMappedTemp = -1;
 
-/* ================= PWM ================= */
-volatile unsigned long pwmRiseTime = 0;
-volatile unsigned long pwmPeriod = 0;
-volatile unsigned long pwmHighTime = 0;
-bool eepromClearedThisSession = false;
-/* =========================================================
-   EEPROM HELPERS
-   ========================================================= */
-int getEEPROMBaseAddress(uint8_t keyIndex) {
-  return keyIndex * 240; // enough for 200-length buffer
+bool isAcOn_Brightness = false;
+bool isAcOn_External_IN = false;
+uint8_t currentTemperature = 24;
+uint8_t lastBrightness = 255;
+
+void printSavedIRData(uint16_t data[], uint16_t size, bool Case)
+{
+  if(!Case)
+    return;
+  Serial.println();
+  Serial.printf("Length sending rawData_len %u, sendData_len%u\n", irRawLength_D, size);
+#if 0
+  Serial.print("Raw Data : ");
+
+  for (uint16_t i = 0; i < irRawLength_D; i++)
+  {
+      Serial.print(data[i]);
+      if (i < (irRawLength_D - 1))
+          Serial.print(", ");
+  }
+  Serial.println();
+#endif
+  Serial.println("============================");
 }
-
-/* =========================================================
-   PRINT SAVED IR DATA
-//    ========================================================= */
-// void printSavedIRData(uint8_t keyIndex)
-// {
-//     if (keyIndex >= TOTAL_IR_KEYS)
-//     {
-//         Serial.println("Invalid Key Index");
-//         return;
-//     }
-
-//     Serial.println();
-//     Serial.printf("========== KEY %d ==========\n", keyIndex);
-//     Serial.printf("Length : %u\n", irRawLength);
-//     Serial.print("Raw Data : ");
-
-//     for (uint16_t i = 0; i < irRawLength; i++)
-//     {
-//         // Serial.print(irRawData[i]);
-
-//         if (i < (irRawLength - 1))
-//             Serial.print(", ");
-//     }
-
-//     Serial.println();
-//     Serial.println("============================");
-// }
-
-/* =========================================================
-   CLEAR EEPROM
-   ========================================================= */
-// void clearEEPROM()
-// {
-//     for (uint8_t key = 0; key < TOTAL_IR_KEYS; key++)
-//     {
-//         int base = getEEPROMBaseAddress(key);
-//         EEPROM.write(base, 0x00);
-//         EEPROM.write(base + 1, 0x00);
-//     }
-
-//     EEPROM.commit();
-//     irRawLength = 0;
-// }
-
-// void saveIRCodeToEEPROM(uint8_t keyIndex) {
-
-//   int base = getEEPROMBaseAddress(keyIndex);
-//   uint16_t len = irRawLength;
-
-//   EEPROM.write(base, len & 0xFF);
-//   EEPROM.write(base + 1, len >> 8);
-
-//   for (uint16_t i = 0; i < len; i++) {
-//     EEPROM.write(base + 2 + i * 2, irRawData[i] & 0xFF);
-//     EEPROM.write(base + 3 + i * 2, irRawData[i] >> 8);
-//   }
-
-//   EEPROM.commit();
-// }
-
-// bool loadIRCodeFromEEPROM(uint8_t keyIndex) {
-//   int base = getEEPROMBaseAddress(keyIndex);
-//   uint16_t len = EEPROM.read(base) | (EEPROM.read(base + 1) << 8);
-
-//   if (len == 0 || len > IR_RAW_BUFFER_SIZE) {
-//     return false;
-//   }
-
-//   irRawLength = len;
-
-//   for (uint16_t i = 0; i < len; i++) {
-//     irRawData[i] =
-//       EEPROM.read(base + 2 + i * 2) |
-//       (EEPROM.read(base + 3 + i * 2) << 8);
-//   }
-//   return true;
-// }
 
 /* =========================================================
    BRIGHTNESS
@@ -659,7 +570,6 @@ int getBrightness(float duty)
     for (int i = 0; i < POINTS; i++)
     {
         float diff = fabs(duty - dutyTable[i]);
-
         if (diff < minDiff)
         {
             minDiff = diff;
@@ -669,7 +579,7 @@ int getBrightness(float duty)
     return brightTable[nearestIndex];
 }
 
-int calculateBrightnessPercent() {
+uint8_t calculateBrightnessPercent() {
 
   unsigned long highTime = pulseIn(PIN_PWM_INPUT, HIGH);
   unsigned long lowTime  = pulseIn(PIN_PWM_INPUT, LOW);
@@ -679,7 +589,7 @@ int calculateBrightnessPercent() {
 
   float frequency = 1000000.0 / period;
   float dutyCycle = (highTime * 100.0) / period;
-  int currentBrightness = getBrightness(dutyCycle);
+  uint8_t currentBrightness = (uint8_t)getBrightness(dutyCycle);
   delay(500);
   return currentBrightness;
 }
@@ -687,9 +597,9 @@ int calculateBrightnessPercent() {
 /* =========================================================
    TEMP MAPPING
    ========================================================= */
-int mapBrightnessToTemperature(int b) {
+uint8_t mapBrightnessToTemperature(uint8_t b) {
 
-  if (b < 15) return -1;
+  if (b <= 15)  return 5;
 
   if (b <= 20) return 16;
   if (b <= 25) return 17;
@@ -710,336 +620,203 @@ int mapBrightnessToTemperature(int b) {
   return 24;
 }
 
-/* =========================================================
-   IR SEND
-   ========================================================= */
-void sendIRCommand(uint8_t keyIndex) {
-//   if (irRawLength[keyIndex] > 0) {
-//     irSender.sendRaw(irRawData[keyIndex], irRawLength[keyIndex], IR_CARRIER_FREQ);
-//   }
-}
-
 void sendACTemperature(int temp) {
-  if (temp < 16) temp = 16;
-  if (temp > 30) temp = 30;
-
-//   uint8_t index = temp - 14; // 16→2
-
-//   Serial.printf("Sending TEMP %d\n", temp);
-//   sendIRCommand(index);
-
-
-    if(temp == 16) {
-      irSender.sendRaw(rawData_H16, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_16, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);      
-    }else if(temp == 17) {
-      irSender.sendRaw(rawData_H17, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_17, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);      
-    } else if(temp == 18) {
-      irSender.sendRaw(rawData_H18, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_18, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_18, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 19) {
-      irSender.sendRaw(rawData_H19, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_19, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_19, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 20) {
-      irSender.sendRaw(rawData_H20, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_20, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_20, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 21) {
-      irSender.sendRaw(rawData_H21, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_21, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-        irSender.sendRaw(rawData_D_21, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 22) {
-      irSender.sendRaw(rawData_H22, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_22, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-        irSender.sendRaw(rawData_D_22, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 23) {
-      irSender.sendRaw(rawData_H23, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_23, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_23, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 24) {
-      irSender.sendRaw(rawData_H24_ON, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_24_ON, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_24_ON, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 25) {
-      irSender.sendRaw(rawData_H25, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_25, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_25, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 26) {
-      irSender.sendRaw(rawData_H26, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_26, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_26, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 27) {
-      irSender.sendRaw(rawData_H27, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_27, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_27, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 28) {
-      irSender.sendRaw(rawData_H28, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_28, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_28, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 29) {
-      irSender.sendRaw(rawData_H29, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_29, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_29, irRawLength_D, IR_CARRIER_FREQ);
-    } else if(temp == 30) {
-      irSender.sendRaw(rawData_H30, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_30, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_30, irRawLength_D, IR_CARRIER_FREQ);
-    }
+  if(temp == 16) {
+    irSender.sendRaw(rawData_H16, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_16, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);     
+  }else if(temp == 17) {
+    irSender.sendRaw(rawData_H17, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_17, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+  } else if(temp == 18) {
+    irSender.sendRaw(rawData_H18, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_18, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_18, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_18,irRawLength_D,false);
+  } else if(temp == 19) {
+    irSender.sendRaw(rawData_H19, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_19, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_19, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_19,irRawLength_D,false);
+  } else if(temp == 20) {
+    irSender.sendRaw(rawData_H20, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_20, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_20, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_20,irRawLength_D,false);
+  } else if(temp == 21) {
+    irSender.sendRaw(rawData_H21, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_21, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_21, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_21,irRawLength_D,false);
+  } else if(temp == 22) {
+    irSender.sendRaw(rawData_H22, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_22, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_22, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_22,irRawLength_D,false);
+  } else if(temp == 23) {
+    irSender.sendRaw(rawData_H23, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_23, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_23, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_23,irRawLength_D,false);
+  } else if(temp == 24) {
+    irSender.sendRaw(rawData_H24_ON, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_24_ON, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_24_ON, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_24_ON,irRawLength_D,false);
+  } else if(temp == 25) {
+    irSender.sendRaw(rawData_H25, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_25, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_25, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_25,irRawLength_D,false);
+  } else if(temp == 26) {
+    irSender.sendRaw(rawData_H26, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_26, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_26, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_26,irRawLength_D,false);
+  } else if(temp == 27) {
+    irSender.sendRaw(rawData_H27, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_27, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_27, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_27,irRawLength_D,false);
+  } else if(temp == 28) {
+    irSender.sendRaw(rawData_H28, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_28, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_28, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_28,irRawLength_D,false);
+  } else if(temp == 29) {
+    irSender.sendRaw(rawData_H29, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_29, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_29, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_29,irRawLength_D,false);
+  } else if(temp == 30) {
+    irSender.sendRaw(rawData_H30, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_30, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_30, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_30,irRawLength_D,false);
+  }else if(temp <= 15){
+    irSender.sendRaw(rawData_H24_OFF, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D1_24_OFF, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+    irSender.sendRaw(rawData_D_24_OFF, irRawLength_D, IR_CARRIER_FREQ);
+    printSavedIRData(rawData_D_24_OFF,irRawLength_D,false);
+  }
 }
 
 /* =========================================================
    AC CONTROL
    ========================================================= */
-void updateACState(int brightness) {
-
-  if (brightness < 15) {
-    if (isAcOn) {
-      Serial.println("AC OFF");
-      irSender.sendRaw(rawData_H24_OFF, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D1_24_OFF, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-      irSender.sendRaw(rawData_D_24_OFF, irRawLength_D, IR_CARRIER_FREQ);  delay(200);
-    //   sendIRCommand(AC_OFF_LOCATION);
-      isAcOn = false;
+void updateACState(uint8_t brightness) {
+  
+  static uint8_t lastTemp = -1;
+  if(isAcOn_External_IN)    // only work if External pin is ON
+  {
+    if (brightness <= 15) {
+      if (isAcOn_Brightness) {
+        Serial.println("Brightness is <= 15 .. Sending AC OFF Command");
+        irSender.sendRaw(rawData_H24_OFF, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+        irSender.sendRaw(rawData_D1_24_OFF, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+        irSender.sendRaw(rawData_D_24_OFF, irRawLength_D, IR_CARRIER_FREQ);  delay(200);
+        isAcOn_Brightness = false;
+      }
+      return;
     }
-    return;
-  }
 
-  if (!isAcOn) {
-    Serial.println("AC ON");
-    irSender.sendRaw(rawData_H24_ON, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-    irSender.sendRaw(rawData_D1_24_ON, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-    irSender.sendRaw(rawData_D_24_ON, irRawLength_D, IR_CARRIER_FREQ);  delay(200);
-    // sendIRCommand(AC_ON_LOCATION);
-    delay(2000);
-    isAcOn = true;
-  }
+    if (!isAcOn_Brightness) {
+      Serial.println("Brightness is > 15 .. Sending AC ON Command");
+      irSender.sendRaw(rawData_H24_ON, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
+      irSender.sendRaw(rawData_D1_24_ON, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
+      irSender.sendRaw(rawData_D_24_ON, irRawLength_D, IR_CARRIER_FREQ);  delay(200);
+      delay(2000);
+      isAcOn_Brightness = true;
+    }
 
-  int targetTemp = mapBrightnessToTemperature(brightness);
-  Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
-
-
-  if (targetTemp != currentTemperature) {
-//    Serial.printf("Brightness: %d → Temp: %d\n", brightness, targetTemp);
-    sendACTemperature(targetTemp);
-    currentTemperature = targetTemp;
+    uint8_t targetTemp = mapBrightnessToTemperature(brightness);
+    
+    if (targetTemp != lastTemp) {
+      Serial.printf("Brightness is %d .. Setting AC temp on %d\n", brightness, targetTemp);
+      sendACTemperature(targetTemp);
+      currentTemperature = targetTemp;
+      lastTemp = targetTemp;
+    }
   }
 }
-
-/* =========================================================
-   LEARNING
-   ========================================================= */
-// bool learnIRCommand(uint8_t keyIndex, unsigned long sessionStart)
-// {
-//     unsigned long start = millis();
-//     while (millis() - start < IR_LEARN_TIMEOUT_MS)
-//     {
-//         if (millis() - sessionStart >= LEARNING_SESSION_TIMEOUT_MS)
-//         {
-//             Serial.println("Learning session timeout");
-//             return false;
-//         }
-//         digitalWrite(PIN_STATUS_LED, LOW);
-//         delay(120);
-//         digitalWrite(PIN_STATUS_LED, HIGH);
-//         delay(120);
-
-//         if (irReceiver.decode(&irResults))
-//         {
-//             uint16_t len = irResults.rawlen - 1;
-//             /* Reject invalid/short frames */
-//             if (len < MIN_IR_FRAME_LENGTH)
-//             {
-//                 Serial.printf("Invalid IR Frame (Length=%u). Waiting for valid frame...\n", len);
-//                 irReceiver.resume();
-//                 continue;
-//             }
-
-//             /* Clear EEPROM only once after first valid frame */
-//             if (!eepromClearedThisSession)
-//             {
-//                 clearEEPROM();
-//                 eepromClearedThisSession = true;
-//             }
-
-//             if (len > IR_RAW_BUFFER_SIZE)
-//                 len = IR_RAW_BUFFER_SIZE;
-
-//             irRawLength = len;
-
-//             for (uint16_t i = 1; i <= len; i++)
-//             {
-//                 irRawData[i - 1] = irResults.rawbuf[i] * kRawTick;
-//             }
-
-//             saveIRCodeToEEPROM(keyIndex);
-//             irReceiver.resume();
-//             printSavedIRData(keyIndex);
-//             Serial.printf("Saved Key-%d (Length=%u)\n", keyIndex, len);
-//             delay(500);
-//             return true;
-//         }
-//     }
-
-//     return false;
-// }
-
 
 /* =========================================================
    READ LM35 SENSOR
    ========================================================= */
 int read_DHT_TEMP()
 {
+  // read without samples.
   byte temperature = 0;
   byte humidity = 0;
-
-  dht11.read(&temperature, &humidity, NULL);
-    // int adc = analogRead(PIN_DHT_SENSOR);
-    // float voltage = adc * (3.3 / 1023.0);
-    // float tempC = voltage * 100.0;
-    return (int)temperature;
+  int err = SimpleDHTErrSuccess;
+  if ((err = dht11.read(&temperature, &humidity, NULL)) != SimpleDHTErrSuccess) {
+    Serial.print("Read DHT11 failed, err="); Serial.print(SimpleDHTErrCode(err));
+    Serial.print(","); Serial.println(SimpleDHTErrDuration(err)); delay(1000);
+    return -1;
+  }
+  return (int)temperature;
 }
+
 
 /* =========================================================
    LM35 TRIGGER PROCESS
    ========================================================= */
-void processLM35Mode()
+void processTempMode()
 {
+  delay(20000);   // check in every 20 sec
   bool trigger = digitalRead(PIN_LM35_ENABLE);
-  if (!trigger)
-  {
-      lm35TriggerProcessed = false;
+
+  // Serial.printf("External pin status: %d, AC status: %d \n",trigger, isAcOn_External_IN);
+  if (trigger && (lastBrightness <=15 )){
+    if (isAcOn_External_IN){
+        irSender.sendRaw(rawData_H24_OFF, irRawLength_H, IR_CARRIER_FREQ);  delay(100);
+        irSender.sendRaw(rawData_D1_24_OFF, irRawLength_D1, IR_CARRIER_FREQ);  delay(100);
+        irSender.sendRaw(rawData_D_24_OFF, irRawLength_D, IR_CARRIER_FREQ);
+        isAcOn_External_IN = false;
+        Serial.printf("Turning AC OFF...\n");
+      };
       return;
-  }
-  if (lm35TriggerProcessed)
-      return;
-  int roomTemp = read_DHT_TEMP();
-  if(roomTemp > currentTemperature)
-  {
-    Serial.printf("DHT_PIN Trigger -> Change temp %d\n", currentTemperature);
-    sendACTemperature(currentTemperature);
-    lm35TriggerProcessed = true;
-  }
-}
-
-/* =========================================================
-   EXTERNAL UART PROCESS
-   ========================================================= */
-void processExternalUART()
-{
-    if(isLearningMode)
-        return;
-        
-    while (extUart.available())
-    {
-        String cmd = extUart.readStringUntil('\n');
-        cmd.trim();
-        cmd.toUpperCase();
-
-        /* ================= AC ON ================= */
-        if (cmd == "ON")
-        {
-            // sendIRCommand(AC_ON_LOCATION);
-            sendACTemperature(24);
-            isAcOn = true;
-
-            extUart.println("ON_ACK");
-            Serial.println("UART: AC ON");
-        
-        }else if (cmd == "OFF"){
-            // sendIRCommand(AC_OFF_LOCATION);
-            irSender.sendRaw(rawData_H24_OFF, irRawLength_H, IR_CARRIER_FREQ);  delay(200);
-            irSender.sendRaw(rawData_D1_24_OFF, irRawLength_D1, IR_CARRIER_FREQ);  delay(200);
-            irSender.sendRaw(rawData_D_24_OFF, irRawLength_D, IR_CARRIER_FREQ);  delay(200);
-            isAcOn = false;
-
-            extUart.println("OFF_ACK");
-            Serial.println("UART: AC OFF");
-        
-        }else if (cmd.startsWith("TEMP:")){
-            int temp = cmd.substring(5).toInt();
-            if (temp >= 16 && temp <= 30)
-            {
-                sendACTemperature(temp);
-                uartTargetTemp = temp;
-                currentTemperature = temp;
-                isAcOn = true;
-
-                extUart.printf("TEMP_%d_ACK\r\n", temp);
-                Serial.printf("UART: TEMP %d\n", temp);
-            
-            }else
-                extUart.println("TEMP_INVALID");
-        
-        }else if (cmd == "STATUS"){
-            extUart.printf(
-                "STATUS,AC=%s,TEMP=%d\r\n",
-                isAcOn ? "ON" : "OFF",
-                currentTemperature
-            );
-        }
-
-        /* ================= UNKNOWN ================= */
-        else
-        {
-            extUart.println("CMD_UNKNOWN");
-        }
+  }else if(trigger && (lastBrightness >15 )){
+    if (!isAcOn_External_IN){
+	    int roomTemp = read_DHT_TEMP();
+      Serial.printf("Current room temp = %d *C\n", roomTemp);
+      if( roomTemp > currentTemperature)
+      {
+        Serial.printf("DHT Trigger -> Set Temp %d\n", currentTemperature);
+        sendACTemperature(currentTemperature);
+		    isAcOn_External_IN = true;
+	    }
     }
+    return;
+  }
+
+  if (!trigger){
+    if (isAcOn_External_IN){
+      irSender.sendRaw(rawData_H24_OFF, irRawLength_H, IR_CARRIER_FREQ);  delay(100);
+      irSender.sendRaw(rawData_D1_24_OFF, irRawLength_D1, IR_CARRIER_FREQ);  delay(100);
+      irSender.sendRaw(rawData_D_24_OFF, irRawLength_D, IR_CARRIER_FREQ);
+      isAcOn_External_IN = false;
+      Serial.printf("Turning AC OFF...\n");
+    }
+    return;
+  }
 }
-
-
-// void startIRLearningSequence()
-// {
-//     Serial.println("Start Learning Mode");
-//     isLearningMode = true;
-//     eepromClearedThisSession = false;
-//     unsigned long sessionStart = millis();
-//     for (uint8_t i = 0; i < TOTAL_IR_KEYS; i++) {
-
-//         if (millis() - sessionStart >= LEARNING_SESSION_TIMEOUT_MS) {
-//             Serial.println("Learning mode expired");
-//             break;
-//         }
-
-//         if (i == AC_OFF_LOCATION)
-//             Serial.println("Learn AC OFF");
-//         else if (i == AC_ON_LOCATION)
-//             Serial.println("Learn AC ON");
-//         else
-//             Serial.printf("Learn TEMP %d\n", 14 + i);
-
-//         if (!learnIRCommand(i, sessionStart)) {
-//             break;
-//         }
-
-//         delay(1000);
-//     }
-
-//     Serial.println("Learning mode exited");
-//     isLearningMode = false;
-// }
 
 /* =========================================================
    SETUP
    ========================================================= */
 void setup() {
 
+
   Serial.begin(115200);
-  // extUart.begin(115200);
-//   EEPROM.begin(EEPROM_TOTAL_SIZE);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   pinMode(PIN_STATUS_LED, OUTPUT);
   pinMode(PIN_PWM_INPUT, INPUT);
+  pinMode(PIN_LM35_ENABLE, INPUT);
 
   digitalWrite(PIN_STATUS_LED, HIGH);
 
   irReceiver.enableIRIn();
   irSender.begin();
-//   for (uint8_t i = 0; i < TOTAL_IR_KEYS; i++) {
-//     loadIRCodeFromEEPROM(i);
-//   }
 
   Serial.println("\n\n\n");
   Serial.println("System Ready");
@@ -1049,30 +826,6 @@ void setup() {
    LOOP
    ========================================================= */
 void loop() {
-
-#if 0       // disable learning mode for demo
-  static unsigned long btnStart = 0;
-  static bool longPress = false;
-
-  bool pressed = (digitalRead(PIN_BUTTON) == LOW);
-
-  if (pressed && btnStart == 0) {
-    btnStart = millis();
-    longPress = false;
-  }
-
-  if (pressed && !longPress) {
-    if (millis() - btnStart >= BUTTON_LONG_PRESS_MS) {
-      longPress = true;
-      startIRLearningSequence();
-    }
-  }
-
-  if (!pressed) {
-    btnStart = 0;
-  }
-#endif
-
 
   static unsigned long lastCheck = 0;
 
@@ -1089,9 +842,8 @@ void loop() {
           }
       }
       lastCheck = millis();
-  }
+  } 
   
-  // processExternalUART();
-  processLM35Mode();
+  processTempMode();
   
 }
