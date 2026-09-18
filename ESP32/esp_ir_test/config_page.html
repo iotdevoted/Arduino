@@ -1,0 +1,314 @@
+#ifndef CONFIG_HTML_H
+#define CONFIG_HTML_H
+
+const char CONFIG_HTML[] PROGMEM = R"rawliteral(
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
+<title>IR Controller - Configuration</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f2f4f7;
+        }
+
+        .container {
+            max-width: 550px;
+            margin: 30px auto;
+            background: white;
+            padding: 25px;
+            border-radius: 14px;
+            box-shadow:
+                0 4px 20px rgba(0,0,0,0.10);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 26px;
+        }
+
+        .mode {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 6px 15px;
+            border-radius: 20px;
+            background: #e8f0fe;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .info {
+            padding: 15px;
+            margin-bottom: 25px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        select {
+            width: 100%;
+            padding: 13px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 16px;
+            background: white;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            background: #1976d2;
+            color: white;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 13px;
+            border-radius: 8px;
+            display: none;
+            font-size: 14px;
+        }
+
+        .status.success {
+            display: block;
+            background: #e8f5e9;
+        }
+
+        .status.error {
+            display: block;
+            background: #ffebee;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .count {
+            margin-top: 10px;
+            color: #666;
+            font-size: 13px;
+        }
+
+    </style>
+</head>
+
+
+<body>
+
+
+<div class="container">
+    <div class="header">
+        <h1>
+            IR Controller
+        </h1>
+
+        <div class="mode">
+            CONFIG MODE
+        </div>
+    </div>
+
+    <div class="info">
+        Select the A/C Brand supported
+        by your remote.
+        <br><br>
+        The brand list is generated
+        dynamically from IR remote system.
+    </div>
+
+    <div
+        id="loading"
+        class="loading"
+    >
+        Loading brands...
+    </div>
+
+
+    <!-- CONFIG -->
+
+    <div
+        id="configArea"
+        style="display:none;"
+    >
+        <label for="protocol">
+            A/C Brand
+        </label>
+
+        <select id="protocol">
+            <option value="">
+                -- Select Brand --
+            </option>
+        </select>
+
+
+        <div
+            id="count"
+            class="count"
+        >
+        </div>
+
+
+        <div class="buttons">
+            <button
+                id="saveButton"
+                disabled
+                onclick="saveProtocol()"
+            >
+                SAVE
+            </button>
+        </div>
+
+
+    </div>
+
+    <div
+        id="status"
+        class="status"
+    >
+    </div>
+</div>
+
+
+<script>
+async function loadProtocols(){
+    try{
+        const response = await fetch( "/api/protocols" );
+        if (!response.ok) {
+            throw new Error("Unable to get brands list");
+        }
+
+        const protocols = await response.json();
+        const select = document.getElementById( "protocol" );
+        protocols.forEach(
+            function(protocol){
+                const option = document.createElement("option");
+                option.value = protocol.id;
+                option.textContent = protocol.name;
+                select.appendChild( option );
+            }
+        );
+
+        document
+            .getElementById("loading")
+            .style.display = "none";
+
+
+        document
+            .getElementById("configArea")
+            .style.display = "block";
+
+
+        document
+            .getElementById("count")
+            .textContent = protocols.length + " supported protocols";
+    }
+
+    catch(error) {
+        showStatus( error.message, false );
+    }
+}
+
+document
+    .getElementById("protocol")
+    .addEventListener("change",
+        function() {
+            const selected = this.value !== "";
+            document
+                .getElementById("saveButton")
+                .disabled = !selected;
+        }
+    );
+
+async function saveProtocol(){
+
+    const select = document.getElementById( "protocol" );
+    const button = document.getElementById( "saveButton" );
+    const protocol = select.value;
+    if (protocol === "")
+        return;
+
+    button.disabled =    true;
+    button.textContent =  "Saving...";
+    try{
+        const response = await fetch ("/api/save",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    body: "protocol=" +
+                        encodeURIComponent( protocol )
+                }
+            );
+
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error( result.message || "Save failed" );
+
+        }
+
+        window.location.href = "/test";
+    }
+
+    catch(error){
+        showStatus( error.message, false );
+        button.disabled = false;
+        button.textContent = "SAVE";
+    }
+}
+
+
+function showStatus( message, success ){
+    const status = document.getElementById( "status" );
+    status.textContent = message;
+    status.className = "status " + ( success ? "success" : "error" );
+}
+
+loadProtocols();
+
+</script>
+</body>
+</html>
+
+)rawliteral";
+
+#endif

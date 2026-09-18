@@ -1,0 +1,365 @@
+#ifndef TEST_HTML_H
+#define TEST_HTML_H
+
+const char TEST_HTML[] PROGMEM = R"rawliteral(
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>IR Controller - Test Mode</title>
+
+<style>
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 20px;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f2f4f7;
+}
+
+.container {
+    max-width: 550px;
+    margin: 30px auto;
+    background: white;
+    padding: 25px;
+    border-radius: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.10);
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 26px;
+}
+
+.mode {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 6px 15px;
+    border-radius: 20px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.protocol {
+    padding: 15px;
+    margin-bottom: 20px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.protocolName {
+    margin-top: 6px;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.card {
+    text-align: center;
+    padding: 25px 15px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+.title {
+    font-size: 13px;
+    color: #777;
+    margin-bottom: 8px;
+}
+
+.temperature {
+    font-size: 48px;
+    font-weight: bold;
+}
+
+.command {
+    font-size: 30px;
+    font-weight: bold;
+}
+
+.step {
+    font-size: 16px;
+    margin-top: 15px;
+    text-align: center;
+}
+
+.countdown {
+    margin-top: 15px;
+    font-size: 14px;
+    color: #666;
+    text-align: center;
+}
+
+.status {
+    margin-top: 15px;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    background: #f5f5f5;
+}
+
+#resultArea {
+    display: none;
+    margin-top: 25px;
+    padding: 20px;
+    border-radius: 10px;
+    background: #fff8e1;
+    border: 1px solid #ddd;
+}
+
+.question {
+    text-align: center;
+    font-size: 17px;
+    font-weight: bold;
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+.resultButtons {
+    display: flex;
+    gap: 12px;
+}
+
+.resultButtons button {
+    flex: 1;
+    padding: 14px;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 17px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.yesButton {
+    background: #2e7d32;
+}
+
+.noButton {
+    background: #c62828;
+}
+
+.resultButtons button:disabled {
+    background: #999;
+    cursor: not-allowed;
+}
+
+#finalArea {
+    display: none;
+    margin-top: 20px;
+    padding: 18px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: bold;
+}
+
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>
+            IR Controller
+        </h1>
+
+        <div class="mode">
+            TEST MODE
+        </div>
+    </div>
+
+    <div class="protocol">
+        <div class="title">
+            SELECTED PROTOCOL
+        </div>
+
+        <div
+            id="protocolName"
+            class="protocolName"
+        >
+            Loading...
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="title">
+            TEMPERATURE
+        </div>
+        <div
+            id="temperature"
+            class="temperature"
+        >
+            -- °C
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="title">
+            COMMAND
+        </div>
+        <div
+            id="command"
+            class="command"
+        >
+            Waiting...
+        </div>
+    </div>
+
+    <div
+        id="step"
+        class="step"
+    >
+        Test: -- / 4
+    </div>
+
+    <div
+        id="countdown"
+        class="countdown"
+    >
+        Waiting for test...
+    </div>
+    <div
+        id="status"
+        class="status"
+    >
+        TEST STARTING...
+    </div>
+
+<div id="resultArea" style="display:none;">
+    <div class="question">
+        Please select YES if your AC turned ON
+        and changed the temperature while
+        testing by system.
+    </div>
+
+    <div class="resultButtons">
+        <button
+            id="yesButton"
+            class="yesButton"
+            onclick="submitResult('yes')">
+            YES
+        </button>
+        <button
+            id="noButton"
+            class="noButton"
+            onclick="submitResult('no')">
+            NO
+        </button>
+    </div>
+</div>
+    <div
+        id="finalArea"
+    >
+    </div>
+</div>
+
+<script>
+async function updateStatus()
+{
+    try{
+        const response = await fetch("/api/test/status");
+        if (!response.ok)
+            return;
+
+        const data =
+            await response.json();
+        document.getElementById("protocolName")
+            .textContent = data.protocol_name;
+
+        document.getElementById("temperature")
+            .textContent = data.temperature + " °C";
+
+        document.getElementById("command")
+            .textContent = data.command;
+
+        document.getElementById("step")
+            .textContent = "Test: " + data.step + " / " + data.total_steps;
+
+        if (data.remaining_ms > 0) {
+            const seconds = Math.ceil( data.remaining_ms / 1000 );
+            document.getElementById("countdown")
+                .textContent = "Next command in: " + seconds + " seconds";
+        
+        }else{
+            document.getElementById("countdown")
+                .textContent = data.complete ? "Test completed" : "Processing...";
+        }
+
+        document.getElementById("status")
+            .textContent = data.status;
+
+        const resultArea = document.getElementById("resultArea");
+
+        if(data.complete === true && data.result_selected === false){
+            resultArea.style.display = "block";
+        }else{
+            resultArea.style.display = "none";
+        }
+
+    }catch(error){
+        console.log("Status error:", error );
+    }
+}
+
+async function submitResult(result)
+{
+    const yesButton =
+        document.getElementById("yesButton");
+
+    const noButton =
+        document.getElementById("noButton");
+
+    yesButton.disabled = true;
+    noButton.disabled = true;
+
+    try{
+        const response = await fetch( "/api/test/result", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/x-www-form-urlencoded"
+                    },
+
+                    body: "result=" + encodeURIComponent(result)
+                }
+            );
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error( data.message || "Unable to process result" );
+        }
+
+        document.getElementById( "resultArea" ).style.display = "none";
+        document.getElementById( "status" ).textContent = data.message;
+        console.log("System mode:", data.mode );
+
+    }catch(error) {
+        alert( error.message );
+        yesButton.disabled = false;
+        noButton.disabled = false;
+    }
+}
+
+setInterval(updateStatus,500);
+updateStatus();
+
+</script>
+</body>
+</html>
+
+)rawliteral";
+
+#endif
